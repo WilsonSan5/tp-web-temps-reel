@@ -1,0 +1,35 @@
+{
+  "users": [
+    {
+      "id": 1,
+      "name": "Alice",
+      "username": "alice",
+      "email": "alice@gmail.com"
+    },
+    {
+      "id": 2,
+      "name": "Bob",
+      "username": "bob",
+      "email": "bob@gmail.com"
+    }
+  ],
+  "products": [
+    {
+      "id": 1,
+      "name": "Clavier",
+      "stock": 10
+    },
+    {
+      "id": 2,
+      "name": "Souris",
+      "stock": 15
+    },
+    {
+      "id": 3,
+      "name": "Ecran",
+      "stock": 5
+    }
+  ],
+  "orders": []
+}
+

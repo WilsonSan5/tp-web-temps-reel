@@ -5,36 +5,51 @@
     <title>Suivi de commandes</title>
   </head>
   <body>
-    <h1>État des commandes</h1>
+    <h1>Suivi des commandes client</h1>
+
+    <label for="user-select">Client :</label>
+    <select id="user-select"></select>
+
+    <h2>Commandes</h2>
     <ul id="order-list"></ul>
 
     <script>
+      const select = document.getElementById("user-select");
       const ul = document.getElementById("order-list");
 
       function renderOrders(orders) {
-        if (!orders.length) {
-          ul.innerHTML = "<li>Aucune commande pour le moment.</li>";
+        if (orders.length === 0) {
+          ul.innerHTML = "<li>Aucune commande</li>";
           return;
         }
         ul.innerHTML = orders
           .map(
             (o) =>
-              `<li>
-                <strong>Commande #${o.id}</strong> —
-                Utilisateur #${o.userId}, Produit #${o.productId}
-                (Qté : ${o.quantity}) —
-                Statut : <strong>${o.status}</strong>
-                <small>(${new Date(o.createdAt).toLocaleString("fr-FR")})</small>
-              </li>`,
+              `<li>Commande #${o.id} - Produit #${o.productId} (Quantité: ${o.quantity}) - Statut: <strong>${o.status}</strong></li>`,
           )
           .join("");
       }
 
-      // Chargement initial des commandes existantes
-      fetch("/orders")
+      function loadOrders(userId) {
+        fetch(`/orders?userId=${userId}`)
+          .then((res) => res.json())
+          .then(renderOrders);
+      }
+
+      fetch("/users")
         .then((res) => res.json())
-        .then(renderOrders)
-        .catch((err) => console.error("Erreur de chargement des commandes :", err));
+        .then((users) => {
+          select.innerHTML = users
+            .map((u) => `<option value="${u.id}">${u.name}</option>`)
+            .join("");
+          if (users.length > 0) {
+            loadOrders(users[0].id);
+          }
+        });
+
+      select.addEventListener("change", () => {
+        loadOrders(select.value);
+      });
     </script>
   </body>
 </html>
