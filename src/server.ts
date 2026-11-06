@@ -1,19 +1,10 @@
 import path from "path";
-import express from "express";
+import express, { type Response } from "express";
 import cors from "cors";
 import { JsonDB, Config } from "node-json-db";
 
-type User = {
-  id: number;
-  name: string;
-  username: string;
-  email: string;
-};
-type Product = {
-  id: number;
-  name: string;
-  stock: number; // quantité disponible
-};
+type User = { id: number; name: string; username: string; email: string };
+type Product = { id: number; name: string; stock: number };
 type Status = "preparing" | "shipped" | "delivered" | "cancelled";
 type Order = {
   id: number;
@@ -26,54 +17,97 @@ type Order = {
 
 const app = express();
 const PORT = Number(process.env.PORT) || 3000;
+const db = new JsonDB(new Config("data/db", true, true, "/"));
 
 app.use(cors());
 app.use(express.json());
 app.use(express.static(path.join(__dirname, "../public")));
 
-const db = new JsonDB(new Config("data/db", true, true, "/"));
+// --- SSE côté serveur ---
+const clients = new Set<Response>();
 
-async function initDb(): Promise<void> {
+app.get("/orders/stream", (_req, res) => {
+  res.writeHead(200, {
+    "Content-Type": "text/event-stream",
+    "Cache-Control": "no-cache",
+    Connection: "keep-alive",
+  });
+  res.flushHeaders();
+  clients.add(res);
+  res.on("close", () => clients.delete(res));
+});
+
+let id = 0;
+function broadcast(event: string, data: unknown) {
+  const msg = `id: ${++id}\nevent: ${event}\ndata: ${JSON.stringify(data)}\n\n`;
+  for (const res of clients) res.write(msg);
+}
+
+function scheduleDelivery(orderId: number) {
+  setTimeout(async () => {
+    const orders = (await db.getData("/orders")) as Order[];
+    const order = orders.find((o) => o.id === orderId);
+    if (order && order.status === "shipped") {
+      order.status = "delivered";
+      await db.push("/orders", orders);
+      broadcast("order-updated", order);
+    }
+  }, 20_000);
+}
+
+async function initDb() {
   try {
-    await db.getData("/users");
+    const orders = (await db.getData("/orders")) as Order[];
+    orders
+      .filter((o) => o.status === "shipped")
+      .forEach((o) => scheduleDelivery(o.id));
   } catch {
-    const initialUsers: User[] = [
+    await db.push("/users", [
       { id: 1, name: "Alice", username: "alice", email: "alice@gmail.com" },
       { id: 2, name: "Bob", username: "bob", email: "bob@gmail.com" },
-    ];
-    const initialProducts: Product[] = [
+    ] satisfies User[]);
+    await db.push("/products", [
       { id: 1, name: "Clavier", stock: 10 },
       { id: 2, name: "Souris", stock: 15 },
       { id: 3, name: "Ecran", stock: 5 },
-    ];
-    const initialOrders: Order[] = [];
-
-    await db.push("/users", initialUsers);
-    await db.push("/products", initialProducts);
-    await db.push("/orders", initialOrders);
+    ] satisfies Product[]);
+    await db.push("/orders", [] satisfies Order[]);
   }
 }
 
-app.get("/", (_req, res) => {
-  res.sendFile(path.join(__dirname, "../public/index.html"));
+// --- Routes REST ---
+app.get("/users", async (_req, res) => {
+  res.json((await db.getData("/users")) as User[]);
 });
 
-// --- Routes de lecture ---
-app.get("/users", async (_req, res) => {
+app.get("/users/:id", async (req, res) => {
   const users = (await db.getData("/users")) as User[];
-  res.json(users);
+  const user = users.find((u) => u.id === Number(req.params.id));
+  if (!user) {
+    res.status(404).json({ error: "Utilisateur introuvable" });
+    return;
+  }
+  res.json(user);
 });
 
 app.get("/products", async (_req, res) => {
+  res.json((await db.getData("/products")) as Product[]);
+});
+
+app.get("/products/:id", async (req, res) => {
   const products = (await db.getData("/products")) as Product[];
-  res.json(products);
+  const product = products.find((p) => p.id === Number(req.params.id));
+  if (!product) {
+    res.status(404).json({ error: "Produit introuvable" });
+    return;
+  }
+  res.json(product);
 });
 
 app.get("/orders", async (req, res) => {
   const orders = (await db.getData("/orders")) as Order[];
   if (req.query.userId) {
-    const userId = Number(req.query.userId);
-    res.json(orders.filter((o) => o.userId === userId));
+    res.json(orders.filter((o) => o.userId === Number(req.query.userId)));
     return;
   }
   res.json(orders);
@@ -89,10 +123,8 @@ app.get("/orders/:id", async (req, res) => {
   res.json(order);
 });
 
-// --- F2. Créer une commande ---
 app.post("/orders", async (req, res) => {
   const { userId, productId, quantity } = req.body as Partial<Order>;
-
   if (
     typeof userId !== "number" ||
     typeof productId !== "number" ||
@@ -100,7 +132,7 @@ app.post("/orders", async (req, res) => {
     !Number.isInteger(quantity) ||
     quantity <= 0
   ) {
-    res.status(400).json({ error: "Champs manquants ou invalides" });
+    res.status(400).json({ error: "Champs invalides" });
     return;
   }
 
@@ -110,14 +142,10 @@ app.post("/orders", async (req, res) => {
 
   const user = users.find((u) => u.id === userId);
   const product = products.find((p) => p.id === productId);
-
-  if (!user || !product) {
-    res.status(404).json({ error: "Client ou produit inexistant" });
-    return;
-  }
-
-  if (product.stock < quantity) {
-    res.status(400).json({ error: "Stock insuffisant" });
+  if (!user || !product || product.stock < quantity) {
+    res
+      .status(400)
+      .json({ error: "Client/produit invalide ou stock insuffisant" });
     return;
   }
 
@@ -126,22 +154,22 @@ app.post("/orders", async (req, res) => {
 
   const newOrder: Order = {
     id: orders.length > 0 ? Math.max(...orders.map((o) => o.id)) + 1 : 1,
-    userId: user.id,
-    productId: product.id,
+    userId,
+    productId,
     quantity,
     status: "preparing",
     createdAt: new Date().toISOString(),
   };
 
-  await db.push("/orders[]", newOrder);
+  orders.push(newOrder);
+  await db.push("/orders", orders);
+  broadcast("order-added", newOrder);
   res.status(201).json(newOrder);
 });
 
-// --- F3, F4, F5. Faire évoluer le statut d'une commande ---
 app.patch("/orders/:id/status", async (req, res) => {
   const orderId = Number(req.params.id);
   const { status } = req.body as { status?: Status };
-
   const orders = (await db.getData("/orders")) as Order[];
   const order = orders.find((o) => o.id === orderId);
 
@@ -150,15 +178,11 @@ app.patch("/orders/:id/status", async (req, res) => {
     return;
   }
 
-  // F4. Annulation uniquement en préparation + remise en stock
   if (status === "cancelled") {
     if (order.status !== "preparing") {
-      res
-        .status(400)
-        .json({ error: "Seule une commande en préparation peut être annulée" });
+      res.status(400).json({ error: "Annulation impossible" });
       return;
     }
-
     order.status = "cancelled";
     const products = (await db.getData("/products")) as Product[];
     const product = products.find((p) => p.id === order.productId);
@@ -166,43 +190,24 @@ app.patch("/orders/:id/status", async (req, res) => {
       product.stock += order.quantity;
       await db.push("/products", products);
     }
-
-    await db.push("/orders", orders);
-    res.json(order);
-    return;
+  } else {
+    const next: Partial<Record<Status, Status>> = {
+      preparing: "shipped",
+      shipped: "delivered",
+    };
+    if (!status || next[order.status] !== status) {
+      res.status(400).json({ error: "Transition invalide" });
+      return;
+    }
+    order.status = status;
+    if (status === "shipped") scheduleDelivery(order.id);
   }
 
-  // F3. Avance d'un statut à la fois : preparing -> shipped -> delivered
-  const nextStatus: Partial<Record<Status, Status>> = {
-    preparing: "shipped",
-    shipped: "delivered",
-  };
-
-  if (!status || nextStatus[order.status] !== status) {
-    res.status(400).json({ error: "Transition de statut invalide" });
-    return;
-  }
-
-  order.status = status;
   await db.push("/orders", orders);
-
-  // F5. 20 secondes après son expédition, passe seule au statut livrée
-  if (status === "shipped") {
-    setTimeout(async () => {
-      const currentOrders = (await db.getData("/orders")) as Order[];
-      const target = currentOrders.find((o) => o.id === orderId);
-      if (target && target.status === "shipped") {
-        target.status = "delivered";
-        await db.push("/orders", currentOrders);
-      }
-    }, 20_000);
-  }
-
+  broadcast("order-updated", order);
   res.json(order);
 });
 
 initDb().then(() => {
-  app.listen(PORT, "0.0.0.0", () => {
-    console.log(`http://localhost:${PORT}`);
-  });
+  app.listen(PORT, "0.0.0.0", () => console.log(`http://localhost:${PORT}`));
 });

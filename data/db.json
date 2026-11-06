@@ -1,35 +1,59 @@
 {
-  "users": [
-    {
-      "id": 1,
-      "name": "Alice",
-      "username": "alice",
-      "email": "alice@gmail.com"
-    },
-    {
-      "id": 2,
-      "name": "Bob",
-      "username": "bob",
-      "email": "bob@gmail.com"
-    }
-  ],
-  "products": [
-    {
-      "id": 1,
-      "name": "Clavier",
-      "stock": 10
-    },
-    {
-      "id": 2,
-      "name": "Souris",
-      "stock": 15
-    },
-    {
-      "id": 3,
-      "name": "Ecran",
-      "stock": 5
-    }
-  ],
-  "orders": []
+    "users": [
+        {
+            "id": 1,
+            "name": "Alice",
+            "username": "alice",
+            "email": "alice@gmail.com"
+        },
+        {
+            "id": 2,
+            "name": "Bob",
+            "username": "bob",
+            "email": "bob@gmail.com"
+        }
+    ],
+    "products": [
+        {
+            "id": 1,
+            "name": "Clavier",
+            "stock": 6
+        },
+        {
+            "id": 2,
+            "name": "Souris",
+            "stock": 15
+        },
+        {
+            "id": 3,
+            "name": "Ecran",
+            "stock": 5
+        }
+    ],
+    "orders": [
+        {
+            "id": 1,
+            "userId": 1,
+            "productId": 1,
+            "quantity": 1,
+            "status": "delivered",
+            "createdAt": "2026-11-06T17:00:00.000Z"
+        },
+        {
+            "id": 2,
+            "userId": 1,
+            "productId": 2,
+            "quantity": 2,
+            "status": "delivered",
+            "createdAt": "2026-11-06T17:05:00.000Z"
+        },
+        {
+            "id": 3,
+            "userId": 1,
+            "productId": 1,
+            "quantity": 4,
+            "status": "delivered",
+            "createdAt": "2026-11-06T17:42:15.299Z"
+        }
+    ]
 }
-
