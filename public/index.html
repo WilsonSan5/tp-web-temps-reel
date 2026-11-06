@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="fr">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Etat commande</title>
+  </head>
+  <body>
+    <h1>Etat commande</h1>
+    <ul id="user-list"></ul>
+
+    <script>
+      const ul = document.getElementById("user-list");
+
+      function render(users) {
+        ul.innerHTML = users
+          .map((u) => `<li><strong>${u.name}</strong> (${u.email})</li>`)
+          .join("");
+      }
+
+      // Chargement initial de la liste existante
+      fetch("/users")
+        .then((res) => res.json())
+        .then(render);
+
+      const eventSource = new EventSource("/users/stream");
+      eventSource.addEventListener("users", (e) => {
+        console.log(e);
+      });
+    </script>
+  </body>
+</html>
