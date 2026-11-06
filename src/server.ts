@@ -12,9 +12,8 @@ type User = {
 type Product = {
   id: number;
   name: string;
-  stock: number;
+  stock: number; // quantité disponible
 };
-// quantité disponible
 type Status = "preparing" | "shipped" | "delivered" | "cancelled";
 type Order = {
   id: number;
@@ -34,20 +33,24 @@ app.use(express.static(path.join(__dirname, "../public")));
 
 const db = new JsonDB(new Config("data/db", true, true, "/"));
 
-async function initDb() {
+async function initDb(): Promise<void> {
   try {
     await db.getData("/users");
   } catch {
-    await db.push("/users", [
+    const initialUsers: User[] = [
       { id: 1, name: "Alice", username: "alice", email: "alice@gmail.com" },
       { id: 2, name: "Bob", username: "bob", email: "bob@gmail.com" },
-    ]);
-    await db.push("/products", [
+    ];
+    const initialProducts: Product[] = [
       { id: 1, name: "Clavier", stock: 10 },
       { id: 2, name: "Souris", stock: 15 },
       { id: 3, name: "Ecran", stock: 5 },
-    ]);
-    await db.push("/orders", []);
+    ];
+    const initialOrders: Order[] = [];
+
+    await db.push("/users", initialUsers);
+    await db.push("/products", initialProducts);
+    await db.push("/orders", initialOrders);
   }
 }
 
@@ -57,17 +60,17 @@ app.get("/", (_req, res) => {
 
 // --- Routes de lecture ---
 app.get("/users", async (_req, res) => {
-  const users = await db.getData("/users");
+  const users = (await db.getData("/users")) as User[];
   res.json(users);
 });
 
 app.get("/products", async (_req, res) => {
-  const products = await db.getData("/products");
+  const products = (await db.getData("/products")) as Product[];
   res.json(products);
 });
 
 app.get("/orders", async (req, res) => {
-  const orders: Order[] = await db.getData("/orders");
+  const orders = (await db.getData("/orders")) as Order[];
   if (req.query.userId) {
     const userId = Number(req.query.userId);
     res.json(orders.filter((o) => o.userId === userId));
@@ -77,7 +80,7 @@ app.get("/orders", async (req, res) => {
 });
 
 app.get("/orders/:id", async (req, res) => {
-  const orders: Order[] = await db.getData("/orders");
+  const orders = (await db.getData("/orders")) as Order[];
   const order = orders.find((o) => o.id === Number(req.params.id));
   if (!order) {
     res.status(404).json({ error: "Commande introuvable" });
@@ -88,25 +91,25 @@ app.get("/orders/:id", async (req, res) => {
 
 // --- F2. Créer une commande ---
 app.post("/orders", async (req, res) => {
-  const { userId, productId, quantity } = req.body;
+  const { userId, productId, quantity } = req.body as Partial<Order>;
 
   if (
-    !userId ||
-    !productId ||
-    !quantity ||
+    typeof userId !== "number" ||
+    typeof productId !== "number" ||
     typeof quantity !== "number" ||
+    !Number.isInteger(quantity) ||
     quantity <= 0
   ) {
     res.status(400).json({ error: "Champs manquants ou invalides" });
     return;
   }
 
-  const users: User[] = await db.getData("/users");
-  const products: Product[] = await db.getData("/products");
-  const orders: Order[] = await db.getData("/orders");
+  const users = (await db.getData("/users")) as User[];
+  const products = (await db.getData("/products")) as Product[];
+  const orders = (await db.getData("/orders")) as Order[];
 
-  const user = users.find((u) => u.id === Number(userId));
-  const product = products.find((p) => p.id === Number(productId));
+  const user = users.find((u) => u.id === userId);
+  const product = products.find((p) => p.id === productId);
 
   if (!user || !product) {
     res.status(404).json({ error: "Client ou produit inexistant" });
@@ -118,7 +121,6 @@ app.post("/orders", async (req, res) => {
     return;
   }
 
-  // Diminue le stock du produit
   product.stock -= quantity;
   await db.push("/products", products);
 
@@ -135,11 +137,12 @@ app.post("/orders", async (req, res) => {
   res.status(201).json(newOrder);
 });
 
+// --- F3, F4, F5. Faire évoluer le statut d'une commande ---
 app.patch("/orders/:id/status", async (req, res) => {
   const orderId = Number(req.params.id);
   const { status } = req.body as { status?: Status };
 
-  const orders: Order[] = await db.getData("/orders");
+  const orders = (await db.getData("/orders")) as Order[];
   const order = orders.find((o) => o.id === orderId);
 
   if (!order) {
@@ -147,6 +150,7 @@ app.patch("/orders/:id/status", async (req, res) => {
     return;
   }
 
+  // F4. Annulation uniquement en préparation + remise en stock
   if (status === "cancelled") {
     if (order.status !== "preparing") {
       res
@@ -156,7 +160,7 @@ app.patch("/orders/:id/status", async (req, res) => {
     }
 
     order.status = "cancelled";
-    const products: Product[] = await db.getData("/products");
+    const products = (await db.getData("/products")) as Product[];
     const product = products.find((p) => p.id === order.productId);
     if (product) {
       product.stock += order.quantity;
@@ -168,6 +172,7 @@ app.patch("/orders/:id/status", async (req, res) => {
     return;
   }
 
+  // F3. Avance d'un statut à la fois : preparing -> shipped -> delivered
   const nextStatus: Partial<Record<Status, Status>> = {
     preparing: "shipped",
     shipped: "delivered",
@@ -181,9 +186,10 @@ app.patch("/orders/:id/status", async (req, res) => {
   order.status = status;
   await db.push("/orders", orders);
 
+  // F5. 20 secondes après son expédition, passe seule au statut livrée
   if (status === "shipped") {
     setTimeout(async () => {
-      const currentOrders: Order[] = await db.getData("/orders");
+      const currentOrders = (await db.getData("/orders")) as Order[];
       const target = currentOrders.find((o) => o.id === orderId);
       if (target && target.status === "shipped") {
         target.status = "delivered";
