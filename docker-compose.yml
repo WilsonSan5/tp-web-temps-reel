@@ -40,7 +40,6 @@ services:
       - "${PORT:-3000}:3000"
     volumes:
       - ./src:/app/src
-      - ./data:/app/data
       - ./public:/app/public
       - ./package.json:/app/package.json
       - ./tsconfig.json:/app/tsconfig.json

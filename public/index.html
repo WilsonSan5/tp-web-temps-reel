@@ -2,30 +2,39 @@
 <html lang="fr">
   <head>
     <meta charset="UTF-8" />
-    <title>Etat commande</title>
+    <title>Suivi de commandes</title>
   </head>
   <body>
-    <h1>Etat commande</h1>
-    <ul id="user-list"></ul>
+    <h1>État des commandes</h1>
+    <ul id="order-list"></ul>
 
     <script>
-      const ul = document.getElementById("user-list");
+      const ul = document.getElementById("order-list");
 
-      function render(users) {
-        ul.innerHTML = users
-          .map((u) => `<li><strong>${u.name}</strong> (${u.email})</li>`)
+      function renderOrders(orders) {
+        if (!orders.length) {
+          ul.innerHTML = "<li>Aucune commande pour le moment.</li>";
+          return;
+        }
+        ul.innerHTML = orders
+          .map(
+            (o) =>
+              `<li>
+                <strong>Commande #${o.id}</strong> —
+                Utilisateur #${o.userId}, Produit #${o.productId}
+                (Qté : ${o.quantity}) —
+                Statut : <strong>${o.status}</strong>
+                <small>(${new Date(o.createdAt).toLocaleString("fr-FR")})</small>
+              </li>`,
+          )
           .join("");
       }
 
-      // Chargement initial de la liste existante
-      fetch("/users")
+      // Chargement initial des commandes existantes
+      fetch("/orders")
         .then((res) => res.json())
-        .then(render);
-
-      const eventSource = new EventSource("/users/stream");
-      eventSource.addEventListener("users", (e) => {
-        console.log(e);
-      });
+        .then(renderOrders)
+        .catch((err) => console.error("Erreur de chargement des commandes :", err));
     </script>
   </body>
 </html>
